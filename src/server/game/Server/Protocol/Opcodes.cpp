@@ -398,7 +398,7 @@ void OpcodeTable::Initialize()
     DEFINE_HANDLER(CMSG_LFG_LEAVE,                                        STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleLfgLeaveOpcode            );
     DEFINE_HANDLER(CMSG_LFG_LFR_JOIN,                                     STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleLfrJoinOpcode             );
     DEFINE_HANDLER(CMSG_LFG_LFR_LEAVE,                                    STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleLfrLeaveOpcode            );
-    DEFINE_HANDLER(CMSG_LFG_LOCK_INFO_REQUEST,                            STATUS_LOGGEDIN,  PROCESS_THREADSAFE,   &WorldSession::HandleLfgGetLockInfoOpcode      );
+    DEFINE_HANDLER(CMSG_DF_GET_SYSTEM_INFO,                               STATUS_LOGGEDIN,  PROCESS_THREADSAFE,   &WorldSession::HandleDFGetSystemInfo           );
     DEFINE_HANDLER(CMSG_LFG_PROPOSAL_RESULT,                              STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleLfgProposalResultOpcode   );
     DEFINE_HANDLER(CMSG_LFG_SET_BOOT_VOTE,                                STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleLfgSetBootVoteOpcode      );
     DEFINE_HANDLER(CMSG_LFG_SET_COMMENT,                                  STATUS_LOGGEDIN,  PROCESS_INPLACE,      &WorldSession::HandleLfgSetCommentOpcode       );

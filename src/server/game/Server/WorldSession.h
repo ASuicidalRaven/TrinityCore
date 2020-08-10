@@ -53,6 +53,10 @@ struct AreaTableEntry;
 struct AuctionEntry;
 struct DeclinedName;
 struct ItemTemplate;
+struct LFGJoinResultData;
+struct LFGUpdateStatusData;
+struct LFGRolecheckUpdateData;
+struct LFGQueueStatusData;
 struct MovementInfo;
 struct TradeStatusInfo;
 
@@ -1060,9 +1064,14 @@ class TC_GAME_API WorldSession
         void HandleLfgSetCommentOpcode(WorldPackets::LFG::LFGSetComment& lfgSetComment);
         void HandleLfgSetBootVoteOpcode(WorldPackets::LFG::LFGBootPlayerVote& lfgBootPlayerVote);
         void HandleLfgTeleportOpcode(WorldPackets::LFG::LFGTeleport& lfgTeleport);
-        void HandleLfgGetLockInfoOpcode(WorldPackets::LFG::LFGGetSystemInfo& lfgGetSystemInfo);
+        void HandleDFGetSystemInfo(WorldPackets::LFG::LFGGetSystemInfo& lfgGetSystemInfo);
         void SendLfgPlayerLockInfo();
         void SendLfgPartyLockInfo();
+        void SendLfgJoinResultNew(LFGJoinResultData const& joinResult);
+        void SendLfgUpdateStatusNew(LFGUpdateStatusData const& updateData);
+        void SendLfgRoleCheckUpdateNew(LFGRolecheckUpdateData const& rolecheckData);
+        void SendLfgQueueStatusNew(LFGQueueStatusData const& queueStatusData);
+
         void HandleLfrJoinOpcode(WorldPacket& recvData);
         void HandleLfrLeaveOpcode(WorldPacket& recvData);
         void HandleLfgGetStatus(WorldPacket& recvData);

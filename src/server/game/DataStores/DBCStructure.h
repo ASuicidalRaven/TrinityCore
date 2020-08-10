@@ -1537,23 +1537,23 @@ struct LFGDungeonEntry
     char* Name;                                             // 1
     uint32  MinLevel;                                       // 2
     uint32  Maxlevel;                                       // 3
-    uint32  Target_level;                                   // 4
-    uint32  Target_level_min;                               // 5
-    uint32  Target_level_max;                               // 6
+    uint32  TargetLevel;                                    // 4
+    uint32  TargetLevelMin;                                 // 5
+    uint32  TargetLevelMax;                                 // 6
     int32   MapID;                                          // 7
     uint32  DifficultyID;                                   // 8
     uint32  Flags;                                          // 9
     uint32  TypeID;                                         // 10
-    //uint32  Faction;                                      // 11
+    int32  Faction;                                         // 11
     //char*   TextureFilename;                              // 12
     uint32  ExpansionLevel;                                 // 13
     //uint32  Order_index;                                  // 14
-    uint32  Group_ID;                                       // 15
+    uint32  GroupID;                                        // 15
     //char*   Description;                                  // 16 Description
-    uint32  Random_ID;                                      // 17 RandomDungeonID assigned for this dungeon
-    uint32  Count_tank;                                     // 18
-    uint32  Count_healer;                                   // 19
-    uint32  Count_damage;                                   // 20
+    uint32  RandomID;                                       // 17 RandomDungeonID assigned for this dungeon
+    uint32  CountTank;                                      // 18
+    uint32  CountHealer;                                    // 19
+    uint32  CountDamage;                                    // 20
 
     // Helpers
     uint32 Entry() const { return ID + (TypeID << 24); }
@@ -1563,8 +1563,8 @@ struct LFGDungeonsGroupingMapEntry
 {
     uint32 ID;                                              // 0
     uint32 LfgDungeonsID;                                   // 1
-    uint32 Random_lfgDungeonsID;                            // 2
-    uint32 Group_ID;                                        // 3
+    uint32 RandomLfgDungeonsID;                             // 2
+    uint32 GroupID;                                         // 3
 };
 
 struct LightEntry

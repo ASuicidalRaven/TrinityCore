@@ -45,11 +45,11 @@
 namespace lfg
 {
 LFGDungeonData::LFGDungeonData(LFGDungeonEntry const* dbc) : id(dbc->ID), name(dbc->Name), map(dbc->MapID),
-    type(dbc->TypeID), expansion(dbc->ExpansionLevel), group(dbc->Group_ID),
+    type(dbc->TypeID), expansion(dbc->ExpansionLevel), group(dbc->GroupID),
     minlevel(dbc->MinLevel), maxlevel(dbc->Maxlevel), difficulty(Difficulty(dbc->DifficultyID)),
     seasonal((dbc->Flags & LFG_FLAG_SEASONAL) != 0), x(0.0f), y(0.0f), z(0.0f), o(0.0f),
-    requiredItemLevel(0), requiredTanks(dbc->Count_tank), requiredHealers(dbc->Count_healer),
-    requiredDamageDealers(dbc->Count_damage)
+    requiredItemLevel(0), requiredTanks(dbc->CountTank), requiredHealers(dbc->CountHealer),
+    requiredDamageDealers(dbc->CountDamage)
 {
 }
 
@@ -2260,7 +2260,7 @@ void LFGMgr::AddDungeonsFromGroupingMap(LfgCachedDungeonContainer& container, ui
     // Check for grouped dungeons from grouping map
     for (auto itr : sLFGDungeonsGroupingMapStore)
     {
-        if (itr->Random_lfgDungeonsID == dungeonId)
+        if (itr->RandomLfgDungeonsID == dungeonId)
         {
             if (container[groupId].find(itr->LfgDungeonsID) == container[groupId].end())
                 container[groupId].insert(itr->LfgDungeonsID);

@@ -62,6 +62,7 @@
 #include "Memory.h"
 #include "Metric.h"
 #include "MMapFactory.h"
+#include "NewLFGMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvPMgr.h"
@@ -1974,6 +1975,9 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading LFG rewards...");
     sLFGMgr->LoadRewards();
 
+    TC_LOG_INFO("server.loading", "NEW LFG SYSTEM: Loading LFG dungeon and reward data...");
+    sNewLFGMgr->InitializeDungeonData();
+
     TC_LOG_INFO("server.loading", "Loading Graveyard-zone links...");
     sObjectMgr->LoadGraveyardZones();
 
@@ -2500,6 +2504,9 @@ void World::Update(uint32 diff)
 
     sLFGMgr->Update(diff);
    sWorldUpdateTime.RecordUpdateTimeDuration("UpdateLFGMgr");
+
+   sNewLFGMgr->Update(diff);
+   sWorldUpdateTime.RecordUpdateTimeDuration("UpdateNewLFGMgr");
 
     // execute callbacks from sql queries that were queued recently
     ProcessQueryCallbacks();

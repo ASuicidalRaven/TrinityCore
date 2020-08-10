@@ -140,8 +140,8 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::LFG::LFGBlackListSlot con
 {
     data << uint32(lfgBlackListSlot.Slot);
     data << uint32(lfgBlackListSlot.Reason);
-    data << uint32(lfgBlackListSlot.SubReason1);
-    data << uint32(lfgBlackListSlot.SubReason2);
+    data << int32(lfgBlackListSlot.SubReason1);
+    data << int32(lfgBlackListSlot.SubReason2);
 
     return data;
 }
@@ -247,7 +247,7 @@ WorldPacket const* WorldPackets::LFG::LFGPlayerInfo::Write()
     for (LfgPlayerDungeonInfo const& playerDungeonInfo : Dungeon)
         _worldPacket << playerDungeonInfo;
 
-    _worldPacket << uint32(BlackList.Slot.size());
+    _worldPacket << int32(BlackList.Slot.size());
     for (WorldPackets::LFG::LFGBlackListSlot const& slot : BlackList.Slot)
         _worldPacket << slot;
 
@@ -279,6 +279,8 @@ WorldPacket const* WorldPackets::LFG::LFGUpdateStatus::Write()
     _worldPacket.WriteBit(Ticket.RequesterGuid[3]);
     _worldPacket.WriteBit(Ticket.RequesterGuid[5]);
     _worldPacket.WriteBit(Queued);
+    _worldPacket.FlushBits();
+
     _worldPacket << uint8(Reason);
     _worldPacket.WriteString(Comment);
 
@@ -341,10 +343,10 @@ WorldPacket const* WorldPackets::LFG::LFGRoleCheckUpdate::Write()
 
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::LFG::LFGJoinBlackListSlot const& lfgBlackListSlot)
 {
+    data << uint32(lfgBlackListSlot.Slot);
     data << uint32(lfgBlackListSlot.Reason);
     data << uint32(lfgBlackListSlot.SubReason1);
     data << uint32(lfgBlackListSlot.SubReason2);
-    data << uint32(lfgBlackListSlot.Slot);
 
     return data;
 }
@@ -377,6 +379,7 @@ WorldPacket const* WorldPackets::LFG::LFGJoinResult::Write()
     _worldPacket.WriteBit(Ticket.RequesterGuid[7]);
     _worldPacket.WriteBit(Ticket.RequesterGuid[3]);
     _worldPacket.WriteBit(Ticket.RequesterGuid[0]);
+
     _worldPacket.WriteBits(BlackList.size(), 24);
 
     for (LFGJoinBlackList const& blackList : BlackList)
@@ -396,6 +399,8 @@ WorldPacket const* WorldPackets::LFG::LFGJoinResult::Write()
     _worldPacket.WriteBit(Ticket.RequesterGuid[5]);
     _worldPacket.WriteBit(Ticket.RequesterGuid[1]);
     _worldPacket.WriteBit(Ticket.RequesterGuid[6]);
+
+    _worldPacket.FlushBits();
 
     for (LFGJoinBlackList const& blackList : BlackList)
         _worldPacket << blackList;

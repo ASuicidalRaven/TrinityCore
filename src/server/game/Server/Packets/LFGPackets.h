@@ -111,7 +111,7 @@ namespace WorldPackets
         class LFGGetSystemInfo final : public ClientPacket
         {
         public:
-            LFGGetSystemInfo(WorldPacket&& packet) : ClientPacket(CMSG_LFG_LOCK_INFO_REQUEST, std::move(packet)) { }
+            LFGGetSystemInfo(WorldPacket&& packet) : ClientPacket(CMSG_DF_GET_SYSTEM_INFO, std::move(packet)) { }
 
             void Read() override;
 

@@ -301,7 +301,7 @@ enum OpcodeClient : uint16
     CMSG_LFG_LEAVE                                    = 0x2433,
     CMSG_LFG_LFR_JOIN                                 = 0x0531,
     CMSG_LFG_LFR_LEAVE                                = 0x0500,
-    CMSG_LFG_LOCK_INFO_REQUEST                        = 0x0412,
+    CMSG_DF_GET_SYSTEM_INFO                           = 0x0412,
     CMSG_LFG_PROPOSAL_RESULT                          = 0x0403,
     CMSG_LFG_SET_BOOT_VOTE                            = 0x04B3,
     CMSG_LFG_SET_COMMENT                              = 0x0530,

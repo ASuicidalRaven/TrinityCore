@@ -6302,7 +6302,7 @@ void Player::RewardOnKill(Unit* victim, float rate)
             {
                 // WotLK and Cataclysm dungeons only grant championing reputation when being in max level dungeons and fighting for a expansion related faction
                 uint8 expansion = GetExpansionForFaction(GetChampioningFaction());
-                if (dungeon->Target_level == DBCManager::GetMaxLevelForExpansion(dungeon->ExpansionLevel) && expansion)
+                if (dungeon->TargetLevel == DBCManager::GetMaxLevelForExpansion(dungeon->ExpansionLevel) && expansion)
                 {
                     if (expansion == dungeon->ExpansionLevel)
                         ChampioningFaction = GetChampioningFaction();

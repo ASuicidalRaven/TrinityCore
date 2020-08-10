@@ -19,6 +19,8 @@
 #include "GameTime.h"
 #include "Group.h"
 #include "LFGMgr.h"
+#include "NewLFGMgr.h"
+#include "LFGStructs.h"
 #include "LFGPackets.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
@@ -31,40 +33,32 @@
 
 void WorldSession::HandleLfgJoinOpcode(WorldPackets::LFG::LFGJoin& lfgJoin)
 {
-    if (!sLFGMgr->isOptionEnabled(lfg::LFG_OPTION_ENABLE_DUNGEON_FINDER | lfg::LFG_OPTION_ENABLE_RAID_BROWSER) ||
-        (GetPlayer()->GetGroup() && GetPlayer()->GetGroup()->GetLeaderGUID() != GetPlayer()->GetGUID() &&
-        (GetPlayer()->GetGroup()->GetMembersCount() == MAXGROUPSIZE || !GetPlayer()->GetGroup()->isLFGGroup())))
-        return;
-
     if (!lfgJoin.Slots.size())
     {
-        TC_LOG_DEBUG("lfg", "CMSG_LFG_JOIN %s no dungeons selected", GetPlayerInfo().c_str());
+        TC_LOG_DEBUG("lfg", "CMSG_LFG_JOIN %s no dungeons selected.", GetPlayerInfo().c_str());
         return;
     }
 
-    lfg::LfgDungeonSet newDungeons;
+    std::unordered_set<uint32> dungeonIds;
     for (uint32 slot : lfgJoin.Slots)
     {
         uint32 dungeonId = slot & 0x00FFFFFF;
-        if (sLFGDungeonStore.LookupEntry(dungeonId))
-            newDungeons.insert(dungeonId);
+        dungeonIds.insert(dungeonId);
     }
 
-    TC_LOG_DEBUG("lfg", "CMSG_LFG_JOIN %s roles: %u, Dungeons: %u", GetPlayerInfo().c_str(), lfgJoin.Roles, uint8(newDungeons.size()));
-
-    sLFGMgr->JoinLfg(GetPlayer(), uint8(lfgJoin.Roles), newDungeons, lfgJoin.Comment);
+    sNewLFGMgr->ProcessLFGJoinRequest(_player, dungeonIds, lfgJoin.Roles);
 }
 
 void WorldSession::HandleLfgLeaveOpcode(WorldPackets::LFG::LFGLeave& lfgLeave)
 {
-    Group* group = GetPlayer()->GetGroup();
+    ObjectGuid requesterGuid = lfgLeave.Ticket.RequesterGuid;
 
-    TC_LOG_DEBUG("lfg", "CMSG_LFG_LEAVE %s in group: %u sent guid %s.",
-        GetPlayerInfo().c_str(), group ? 1 : 0, lfgLeave.Ticket.RequesterGuid.ToString().c_str());
+    // Rolecheck canceling when joining a dungeon for the first time does not provide a RideTicket
+    // because there is no ticket provided yet. Fall back to default group guid.
+    if (requesterGuid.IsEmpty() && _player->GetGroup() && _player->GetGroup()->GetLeaderGUID() == _player->GetGUID())
+        requesterGuid = _player->GetGroup()->GetGUID();
 
-    // Check cheating - only leader can leave the queue
-    if (!group || group->GetLeaderGUID() == lfgLeave.Ticket.RequesterGuid)
-        sLFGMgr->LeaveLfg(lfgLeave.Ticket.RequesterGuid);
+    sNewLFGMgr->ProcessLFGLeaveRequest(lfgLeave.Ticket.Id, requesterGuid);
 }
 
 void WorldSession::HandleLfgProposalResultOpcode(WorldPackets::LFG::LFGProposalResponse& lfgProposalResponse)
@@ -76,24 +70,28 @@ void WorldSession::HandleLfgProposalResultOpcode(WorldPackets::LFG::LFGProposalR
 
 void WorldSession::HandleLfgSetRolesOpcode(WorldPackets::LFG::LFGSetRoles& lfgSetRoles)
 {
-    ObjectGuid guid = GetPlayer()->GetGUID();
-    Group* group = GetPlayer()->GetGroup();
+    Group* group = _player->GetGroup();
+
+    // Rolechecks are only available in groups.
     if (!group)
-    {
-        TC_LOG_DEBUG("lfg", "CMSG_LFG_SET_ROLES %s Not in group",
-            GetPlayerInfo().c_str());
         return;
-    }
-    ObjectGuid gguid = group->GetGUID();
-    TC_LOG_DEBUG("lfg", "CMSG_LFG_SET_ROLES: Group %s, Player %s, Roles: %u",
-        gguid.ToString().c_str(), GetPlayerInfo().c_str(), lfgSetRoles.RolesDesired);
 
-    // Role validation
-    if (!sLFGMgr->CanPerformSelectedRoles(GetPlayer()->getClass(), lfgSetRoles.RolesDesired))
-        lfgSetRoles.RolesDesired = 0;
-
-    sLFGMgr->UpdateRoleCheck(gguid, guid, lfgSetRoles.RolesDesired);
+    sNewLFGMgr->ProcessPlayerRoleRequest(group->GetGUID(), _player->GetGUID(), lfgSetRoles.RolesDesired);
 }
+
+void WorldSession::SendLfgRoleChosen(ObjectGuid guid, uint8 roles)
+{
+    TC_LOG_DEBUG("lfg", "SMSG_LFG_ROLE_CHOSEN %s guid: %s roles: %u",
+        GetPlayerInfo().c_str(), guid.ToString().c_str(), roles);
+
+    WorldPackets::LFG::RoleChosen roleChosen;
+    roleChosen.Player = guid;
+    roleChosen.RoleMask = roles;
+    roleChosen.Accepted = roles > 0;
+    SendPacket(roleChosen.Write());
+}
+
+// NOT UPDATED YET!
 
 void WorldSession::HandleLfgSetCommentOpcode(WorldPackets::LFG::LFGSetComment& lfgSetComment)
 {
@@ -118,9 +116,9 @@ void WorldSession::HandleLfgTeleportOpcode(WorldPackets::LFG::LFGTeleport& lfgTe
     sLFGMgr->TeleportPlayer(GetPlayer(), lfgTeleport.TeleportOut, true);
 }
 
-void WorldSession::HandleLfgGetLockInfoOpcode(WorldPackets::LFG::LFGGetSystemInfo& lfgGetSystemInfo)
+void WorldSession::HandleDFGetSystemInfo(WorldPackets::LFG::LFGGetSystemInfo& lfgGetSystemInfo)
 {
-    TC_LOG_DEBUG("lfg", "CMSG_LFG_LOCK_INFO_REQUEST %s for %s", GetPlayerInfo().c_str(), (lfgGetSystemInfo.Player ? "player" : "party"));
+    TC_LOG_DEBUG("lfg", "CMSG_DF_GET_SYSTEM_INFO %s for %s", GetPlayerInfo().c_str(), (lfgGetSystemInfo.Player ? "player" : "party"));
 
     if (lfgGetSystemInfo.Player)
         SendLfgPlayerLockInfo();
@@ -132,125 +130,117 @@ void WorldSession::SendLfgPlayerLockInfo()
 {
     TC_LOG_DEBUG("lfg", "SMSG_LFG_PLAYER_INFO %s", GetPlayerInfo().c_str());
 
-    // Get Random dungeons that can be done at a certain level and expansion
+    // Get random, seasonal and raid dungeons that are within the player's level range and expansion
     uint8 level = _player->getLevel();
-    lfg::LfgDungeonSet const& randomDungeons = sLFGMgr->GetRandomAndSeasonalDungeons(level, GetExpansion());
+    std::unordered_set<uint32>const& availableDungeons = sNewLFGMgr->GetAvailableSeasonalRandomAndRaidDungeonIds(level, GetExpansion());
 
     WorldPackets::LFG::LFGPlayerInfo lfgPlayerInfo;
 
     // Get player locked Dungeons
-    for (auto const& lock : sLFGMgr->GetLockedDungeons(_player->GetGUID()))
-        lfgPlayerInfo.BlackList.Slot.emplace_back(lock.first, lock.second.lockStatus, lock.second.requiredItemLevel, lock.second.currentItemLevel);
+    for (auto const& lock : sNewLFGMgr->GetLockedDungeonsForPlayer(_player->GetGUID()))
+        lfgPlayerInfo.BlackList.Slot.emplace_back(lock.first, AsUnderlyingType(lock.second.Reason), lock.second.SubReason1, lock.second.SubReason2);
 
-    for (uint32 slot : randomDungeons)
+    for (uint32 dungeonId : availableDungeons)
     {
+        LFGDungeonData const* data = sNewLFGMgr->GetDungeonDataForDungeonId(dungeonId);
+        if (!data)
+            continue;
+
         lfgPlayerInfo.Dungeon.emplace_back();
         WorldPackets::LFG::LfgPlayerDungeonInfo& playerDungeonInfo = lfgPlayerInfo.Dungeon.back();
-        playerDungeonInfo.Slot = slot;
+        playerDungeonInfo.Slot = data->DungeonEntry->Entry();
 
-        bool firstReward = false;
-        Quest const* currentQuest = nullptr;
-        Quest const* shortageQuest = nullptr;
-
-        if (lfg::LfgReward const* reward = sLFGMgr->GetRandomDungeonReward(slot, level))
+        for (std::vector<LFGRewardData>::const_iterator itr = data->CompletionRewards.begin(); itr != data->CompletionRewards.end(); ++itr)
         {
-            if (Quest const* firstQuest = sObjectMgr->GetQuestTemplate(reward->firstQuest))
-            {
-                firstReward = _player->CanRewardQuest(firstQuest, false);
-                if (reward->completionsPerPeriod)
-                    firstReward = _player->SatisfyFirstLFGReward(slot & 0x00FFFFFF, reward->completionsPerPeriod);
+            if (itr->MaxLevel < level)
+                continue;
 
-                if (firstReward)
-                    currentQuest = firstQuest;
+            Quest const* rewardQuest = nullptr;
+
+            // Building quest reward limit data
+            for (uint32 questId : { itr->MainRewardQuestID, itr->AlternatvieRewardQuestID })
+            {
+                // Skip invalid reward quests
+                Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+                if (!quest)
+                    continue;
+
+                // Skip reward quests that cannot be completed anymore
+                if (!_player->CanRewardQuest(quest, false))
+                    continue;
+
+                // Skip first reward when completion limit per period has been reached
+                if (itr->CompletionsPerPeriod && questId == itr->MainRewardQuestID)
+                    if (!_player->SatisfyFirstLFGReward(data->DungeonEntry->ID, itr->CompletionsPerPeriod))
+                        continue;
+
+                // All checks have been passed. Use passed quest for reward building
+                rewardQuest = quest;
+                break;
             }
 
-            if (Quest const* otherQuest = sObjectMgr->GetQuestTemplate(reward->otherQuest))
-                if (!firstReward)
-                    currentQuest = otherQuest;
+            // All reward checks have failed, no rewards for the player :(
+            if (!rewardQuest)
+                break;
 
-            if (firstReward && reward->completionsPerPeriod)
+            // Main reward is available and has a reward quantity limit. Fill limit data
+            if (rewardQuest->GetQuestId() == itr->MainRewardQuestID && itr->CompletionsPerPeriod)
             {
                 playerDungeonInfo.CompletionQuantity = 1;
-                playerDungeonInfo.CompletionLimit = reward->completionsPerPeriod;
-                playerDungeonInfo.SpecificLimit = reward->completionsPerPeriod;
-                playerDungeonInfo.OverallQuantity = _player->GetFirstRewardCountForDungeonId(slot & 0x00FFFFFF);
-                playerDungeonInfo.OverallLimit = reward->completionsPerPeriod;
+                playerDungeonInfo.CompletionLimit = itr->CompletionsPerPeriod;
+                playerDungeonInfo.SpecificLimit = itr->CompletionsPerPeriod;
+                playerDungeonInfo.OverallQuantity = _player->GetFirstRewardCountForDungeonId(data->DungeonEntry->ID);
+                playerDungeonInfo.OverallLimit = itr->CompletionsPerPeriod;
                 playerDungeonInfo.Quantity = 1;
             }
 
-            if (!_player->GetGroup())
+            // Fill quest reward item and currency data
+            playerDungeonInfo.Rewards.RewardMoney = rewardQuest->GetRewOrReqMoney(_player);
+            playerDungeonInfo.Rewards.RewardXP = _player->getLevel() < sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL) ? rewardQuest->GetXPReward(_player) : 0;
+            for (uint8 i = 0; i < QUEST_REWARDS_COUNT; ++i)
+                if (uint32 itemId = rewardQuest->RewardItemId[i])
+                    playerDungeonInfo.Rewards.Item.emplace_back(itemId, rewardQuest->RewardItemIdCount[i]);
+
+            for (uint32 i = 0; i < QUEST_REWARD_CURRENCY_COUNT; ++i)
             {
-                if (LFGDungeonEntry const* dungeon = sLFGDungeonStore.LookupEntry(slot & 0x00FFFFFF))
+                if (uint32 currencyId = rewardQuest->RewardCurrencyId[i])
                 {
-                    if (uint32 roleMask = sLFGMgr->GetShortageRoleMask(dungeon->ID))
+                    if (CurrencyTypesEntry const* currency = sCurrencyTypesStore.LookupEntry(currencyId))
                     {
-                        shortageQuest = sObjectMgr->GetQuestTemplate(reward->shortageQuest);
-                        playerDungeonInfo.ShortageRoleMask = roleMask;
+                        if (currency->Flags & CURRENCY_FLAG_HIGH_PRECISION)
+                            playerDungeonInfo.Rewards.Currency.emplace_back(currencyId, rewardQuest->RewardCurrencyCount[i] * CURRENCY_PRECISION);
+                        else
+                            playerDungeonInfo.Rewards.Currency.emplace_back(currencyId, rewardQuest->RewardCurrencyCount[i]);
                     }
                 }
             }
-        }
 
-        if (currentQuest)
-        {
-            playerDungeonInfo.Rewards.RewardMoney = currentQuest->GetRewOrReqMoney(_player);
-            playerDungeonInfo.Rewards.RewardXP = _player->getLevel() < sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL) ? currentQuest->GetXPReward(_player) : 0;
-            for (uint8 i = 0; i < QUEST_REWARDS_COUNT; ++i)
-                if (uint32 itemId = currentQuest->RewardItemId[i])
-                    playerDungeonInfo.Rewards.Item.emplace_back(itemId, currentQuest->RewardItemIdCount[i]);
+            // Todo: Shortage rewards (Call to Arms bonus)
 
-            for (uint32 i = 0; i < QUEST_REWARD_CURRENCY_COUNT; ++i)
-                if (uint32 currencyId = currentQuest->RewardCurrencyId[i])
-                    if (CurrencyTypesEntry const* currency = sCurrencyTypesStore.LookupEntry(currencyId))
-                    {
-                        if (currency->Flags & CURRENCY_FLAG_HIGH_PRECISION)
-                            playerDungeonInfo.Rewards.Currency.emplace_back(currencyId, currentQuest->RewardCurrencyCount[i] * CURRENCY_PRECISION);
-                        else
-                            playerDungeonInfo.Rewards.Currency.emplace_back(currencyId, currentQuest->RewardCurrencyCount[i]);
-                    }
-        }
-
-        if (shortageQuest)
-        {
-            playerDungeonInfo.ShortageEligible = true;
-            playerDungeonInfo.ShortageReward.RewardMoney = shortageQuest->GetRewOrReqMoney(_player);;
-            playerDungeonInfo.ShortageReward.RewardXP = _player->getLevel() < sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL) ? shortageQuest->GetXPReward(_player) : 0;
-            for (uint8 i = 0; i < QUEST_REWARDS_COUNT; ++i)
-                if (uint32 itemId = shortageQuest->RewardItemId[i])
-                    playerDungeonInfo.ShortageReward.Item.emplace_back(itemId, shortageQuest->RewardItemIdCount[i]);
-
-            for (uint32 i = 0; i < QUEST_REWARD_CURRENCY_COUNT; ++i)
-                if (uint32 currencyId = shortageQuest->RewardCurrencyId[i])
-                    if (CurrencyTypesEntry const* currency = sCurrencyTypesStore.LookupEntry(currencyId))
-                    {
-                        if (currency->Flags & CURRENCY_FLAG_HIGH_PRECISION)
-                            playerDungeonInfo.ShortageReward.Currency.emplace_back(currencyId, shortageQuest->RewardCurrencyCount[i] * CURRENCY_PRECISION);
-                        else
-                            playerDungeonInfo.ShortageReward.Currency.emplace_back(currencyId, shortageQuest->RewardCurrencyCount[i]);
-                    }
-        }
-
-        for (auto itr : playerDungeonInfo.Rewards.Currency)
-        {
-            if (itr.CurrencyID == CURRENCY_TYPE_VALOR_POINTS)
+            // One of the rewards has Valor Points. Fill weekly Valor Points cap data
+            for (auto itr : playerDungeonInfo.Rewards.Currency)
             {
-                CurrencyTypesEntry const* currency = sCurrencyTypesStore.LookupEntry(CURRENCY_TYPE_VALOR_POINTS);
-                if (!currency)
-                    continue;
+                if (itr.CurrencyID == CURRENCY_TYPE_VALOR_POINTS)
+                {
+                    CurrencyTypesEntry const* currency = sCurrencyTypesStore.LookupEntry(CURRENCY_TYPE_VALOR_POINTS);
+                    if (!currency)
+                        continue;
 
-                uint32 weeklyCap = _player->GetCurrencyWeekCap(currency);
-                playerDungeonInfo.CompletionQuantity += itr.Quantity;
-                playerDungeonInfo.CompletionLimit = weeklyCap;
-                playerDungeonInfo.CompletionCurrencyID = itr.CurrencyID;
-                playerDungeonInfo.SpecificLimit = weeklyCap;
-                playerDungeonInfo.OverallLimit = weeklyCap;
-                playerDungeonInfo.PurseWeeklyQuantity = _player->GetCurrencyOnWeek(CURRENCY_TYPE_VALOR_POINTS, false);
-                playerDungeonInfo.PurseWeeklyLimit = weeklyCap;
-                playerDungeonInfo.PurseQuantity = _player->GetCurrency(CURRENCY_TYPE_VALOR_POINTS, false);
-                playerDungeonInfo.Quantity += itr.Quantity;
+                    uint32 weeklyCap = _player->GetCurrencyWeekCap(currency);
+                    playerDungeonInfo.CompletionQuantity += itr.Quantity;
+                    playerDungeonInfo.CompletionLimit = weeklyCap;
+                    playerDungeonInfo.CompletionCurrencyID = itr.CurrencyID;
+                    playerDungeonInfo.SpecificLimit = weeklyCap;
+                    playerDungeonInfo.OverallLimit = weeklyCap;
+                    playerDungeonInfo.PurseWeeklyQuantity = _player->GetCurrencyOnWeek(CURRENCY_TYPE_VALOR_POINTS, false);
+                    playerDungeonInfo.PurseWeeklyLimit = weeklyCap;
+                    playerDungeonInfo.PurseQuantity = _player->GetCurrency(CURRENCY_TYPE_VALOR_POINTS, false);
+                    playerDungeonInfo.Quantity += itr.Quantity;
+                }
             }
-        }
 
+            break;
+        }
     }
 
     SendPacket(lfgPlayerInfo.Write());
@@ -258,8 +248,9 @@ void WorldSession::SendLfgPlayerLockInfo()
 
 void WorldSession::SendLfgPartyLockInfo()
 {
-    ObjectGuid guid = GetPlayer()->GetGUID();
-    Group* group = GetPlayer()->GetGroup();
+    TC_LOG_DEBUG("lfg", "SMSG_LFG_PARTY_INFO %s", GetPlayerInfo().c_str());
+
+    Group* group = _player->GetGroup();
     if (!group)
         return;
 
@@ -268,23 +259,97 @@ void WorldSession::SendLfgPartyLockInfo()
     // Get the locked dungeons of the other party members
     for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
-        Player* plrg = itr->GetSource();
-        if (!plrg)
+        Player* groupPlayer = itr->GetSource();
+        if (!groupPlayer)
             continue;
 
-        ObjectGuid pguid = plrg->GetGUID();
-        if (pguid == guid)
+        // Do not send lockdata for the packet requester
+        if (groupPlayer == _player)
             continue;
+
+        ObjectGuid guid = groupPlayer->GetGUID();
 
         lfgPartyInfo.Player.emplace_back();
         WorldPackets::LFG::LFGBlackList& lfgBlackList = lfgPartyInfo.Player.back();
-        lfgBlackList.PlayerGuid = pguid;
-        for (auto const& lock : sLFGMgr->GetLockedDungeons(pguid))
-            lfgBlackList.Slot.emplace_back(lock.first, lock.second.lockStatus, lock.second.requiredItemLevel, lock.second.currentItemLevel);
+        lfgBlackList.PlayerGuid = guid;
+        for (auto const& lock : sNewLFGMgr->GetLockedDungeonsForPlayer(guid))
+            lfgBlackList.Slot.emplace_back(lock.first, AsUnderlyingType(lock.second.Reason), lock.second.SubReason1, lock.second.SubReason2);
     }
 
-    TC_LOG_DEBUG("lfg", "SMSG_LFG_PARTY_INFO %s", GetPlayerInfo().c_str());
     SendPacket(lfgPartyInfo.Write());
+}
+
+void WorldSession::SendLfgJoinResultNew(LFGJoinResultData const& joinResult)
+{
+    WorldPackets::LFG::LFGJoinResult packet;
+    packet.Result = AsUnderlyingType(joinResult.Result);
+    packet.ResultDetail = AsUnderlyingType(joinResult.ResultDetail);
+    packet.Ticket.Id = joinResult.RideTicket.ID;
+    packet.Ticket.Type = WorldPackets::LFG::RideType(joinResult.RideTicket.Type);
+    packet.Ticket.Time = joinResult.RideTicket.Time;
+    packet.Ticket.RequesterGuid = joinResult.RideTicket.RequesterGUID;
+
+    for (auto itr : joinResult.PlayerLockMap)
+    {
+        packet.BlackList.emplace_back();
+        WorldPackets::LFG::LFGJoinBlackList& blackList = packet.BlackList.back();
+        blackList.Guid = itr.first;
+
+        for (auto it : itr.second)
+            blackList.Slots.emplace_back(it.first, AsUnderlyingType(it.second.Reason), it.second.SubReason1, it.second.SubReason2);
+    }
+
+    SendPacket(packet.Write());
+}
+
+void WorldSession::SendLfgUpdateStatusNew(LFGUpdateStatusData const& updateData)
+{
+    WorldPackets::LFG::LFGUpdateStatus packet;
+    packet.Ticket.Id = updateData.RideTicket.ID;
+    packet.Ticket.RequesterGuid = updateData.RideTicket.RequesterGUID;
+    packet.Ticket.Time = updateData.RideTicket.Time;
+    packet.Ticket.Type = WorldPackets::LFG::RideType(updateData.RideTicket.Type);
+    packet.Reason = AsUnderlyingType(updateData.UpdateReason);
+    packet.Slots = updateData.Slots;
+    packet.IsParty = updateData.IsParty;
+    packet.Joined = updateData.Joined;
+    packet.LfgJoined = updateData.LFGJoined;
+    packet.Queued = updateData.Queued;
+    packet.Comment = updateData.Comment;
+
+    SendPacket(packet.Write());
+}
+
+void WorldSession::SendLfgRoleCheckUpdateNew(LFGRolecheckUpdateData const& rolecheckData)
+{
+    WorldPackets::LFG::LFGRoleCheckUpdate packet;
+    packet.RoleCheckStatus = AsUnderlyingType(rolecheckData.State);
+
+    packet.IsBeginning = rolecheckData.IsBeginning;
+    packet.JoinSlots = rolecheckData.Slots;
+    for (auto itr : rolecheckData.PartyMemberRoles)
+        packet.Members.emplace_back(itr.first, itr.second.RoleMask, ASSERT_NOTNULL(ObjectAccessor::FindConnectedPlayer(itr.first))->getLevel(), itr.second.RoleConfirmed);
+
+    SendPacket(packet.Write());
+}
+
+void WorldSession::SendLfgQueueStatusNew(LFGQueueStatusData const& queueStatusData)
+{
+    WorldPackets::LFG::LFGQueueStatus lfgQueueStatus;
+    lfgQueueStatus.Ticket.Id = queueStatusData.RideTicket.ID;
+    lfgQueueStatus.Ticket.RequesterGuid = queueStatusData.RideTicket.RequesterGUID;
+    lfgQueueStatus.Ticket.Time = queueStatusData.RideTicket.Time;
+    lfgQueueStatus.Ticket.Type = WorldPackets::LFG::RideType(queueStatusData.RideTicket.Type);
+    lfgQueueStatus.QueuedTime = queueStatusData.TimeInQueue;
+    lfgQueueStatus.AvgWaitTime = queueStatusData.AverageWaitTime;
+
+    for (uint8 i = 0; i < 3; ++i)
+    {
+        lfgQueueStatus.AvgWaitTimeByRole[i] = queueStatusData.AverageWaitTimeByRole[i];
+        lfgQueueStatus.LastNeeded[i] = queueStatusData.RemainingNeededRoles[i];
+    }
+
+    SendPacket(lfgQueueStatus.Write());
 }
 
 void WorldSession::HandleLfrJoinOpcode(WorldPacket& recvData)
@@ -379,18 +444,6 @@ void WorldSession::SendLfgUpdateStatus(lfg::LfgUpdateData const& updateData, boo
     lfgUpdateStatus.Comment = updateData.comment;
 
     SendPacket(lfgUpdateStatus.Write());
-}
-
-void WorldSession::SendLfgRoleChosen(ObjectGuid guid, uint8 roles)
-{
-    TC_LOG_DEBUG("lfg", "SMSG_LFG_ROLE_CHOSEN %s guid: %s roles: %u",
-        GetPlayerInfo().c_str(), guid.ToString().c_str(), roles);
-
-    WorldPackets::LFG::RoleChosen roleChosen;
-    roleChosen.Player = guid;
-    roleChosen.RoleMask = roles;
-    roleChosen.Accepted = roles > 0;
-    SendPacket(roleChosen.Write());
 }
 
 void WorldSession::SendLfgRoleCheckUpdate(lfg::LfgRoleCheck const& roleCheck)
