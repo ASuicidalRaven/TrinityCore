@@ -3364,8 +3364,9 @@ void Spell::_cast(bool skipCheck)
         }
     }
     // The spell focusing is making sure that we have a valid cast targe guid when we need it so only check for a guid value here.
-    if (m_caster->IsCreature() && !m_caster->ToCreature()->GetTarget().IsEmpty() && !m_caster->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_POSSESSED))
-        m_caster->SetInFront(ObjectAccessor::GetUnit(*m_caster, m_caster->GetTarget()));
+    if (Creature* creatureCaster = m_caster->ToCreature())
+        if (!creatureCaster->GetTarget().IsEmpty() && !creatureCaster->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_POSSESSED))
+            creatureCaster->SetInFront(ObjectAccessor::GetUnit(*creatureCaster, creatureCaster->GetTarget()));
 
     SelectSpellTargets();
 
